@@ -17,43 +17,43 @@
 <j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout"
          xmlns:t="/lib/hudson" xmlns:f="/lib/form">
 
-    <j:set var="mavens" value="${descriptor.mavenDescriptor.installations}" />
+    <j:set var="mavens" value="${descriptor.mavenDescriptor.installations}"/>
     <j:if test="${empty(mavens)}">
-      <!-- no maven installation is configured. this will be an error, so warn the user now -->
-      <f:entry title="${%Maven Version}">
-        <div class="error">
-          ${%maven.version.error.1}&lt;br>
-          ${%maven.version.error.2(rootURL)}
-        </div>
-      </f:entry>
+        <!-- no maven installation is configured. this will be an error, so warn the user now -->
+        <f:entry title="${%Maven Version}">
+            <div class="error">
+                ${%maven.version.error.1}&lt;br>
+                ${%maven.version.error.2(rootURL)}
+            </div>
+        </f:entry>
     </j:if>
     <j:if test="${mavens.size() gt 1}">
-      <!-- display only if there's more than one maven installation -->
-      <f:entry title="${%Maven Version}">
-        <select class="setting-input" name="maven_version">
-          <j:forEach var="inst" items="${mavens}">
-            <f:option selected="${inst.name==descriptor.mavenName}">${inst.name}</f:option>
-          </j:forEach>
-        </select>
-      </f:entry>
+        <!-- display only if there's more than one maven installation -->
+        <f:entry title="${%Maven Version}">
+            <select class="setting-input" name="mavenName">
+                <j:forEach var="inst" items="${mavens}">
+                    <f:option selected="${inst.name==instance.mavenName}">${inst.name}</f:option>
+                </j:forEach>
+            </select>
+        </f:entry>
     </j:if>
     <f:entry title="${%Root POM}" field="rootPom" help="/plugin/maven-plugin/root-pom.html">
-      <f:textbox/>
+        <f:textbox/>
     </f:entry>
     <f:entry title="${%Goals and options}" field="goals" help="/plugin/maven-plugin/goals.html">
-      <f:textbox />
+        <f:textbox/>
     </f:entry>
     <f:advanced>
-      <f:entry title="MAVEN_OPTS" field="mavenOpts" help="/plugin/maven-plugin/maven-opts.html">
-        <f:expandableTextbox />
-      </f:entry>
-      <!--<f:entry title="${%Alternate settings file}"
-               help="/plugin/maven-plugin/alternate-settings.html">
-        <f:textbox name="alternateSettings" value="${descriptor.alternateSettings}"/>
-      </f:entry>-->
+        <f:entry title="MAVEN_OPTS" field="mavenOpts" help="/plugin/maven-plugin/maven-opts.html">
+            <f:expandableTextbox/>
+        </f:entry>
+        <!--<f:entry title="${%Alternate settings file}"
+                 help="/plugin/maven-plugin/alternate-settings.html">
+          <f:textbox name="alternateSettings" value="${descriptor.alternateSettings}"/>
+        </f:entry>-->
     </f:advanced>
 
-<!--
+    <!--
     <f:dropdownList name="details" title="${%Artifactory server}">
         <j:forEach var="s" items="${descriptor.artifactoryServers}" varStatus="loop">
             <f:dropdownListBlock value="${s.name}" title="${s.name}" selected="${s.name==instance.artifactoryName}">

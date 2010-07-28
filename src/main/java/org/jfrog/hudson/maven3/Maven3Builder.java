@@ -16,6 +16,7 @@
 
 package org.jfrog.hudson.maven3;
 
+import com.google.common.collect.Maps;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.FilePath;
@@ -24,21 +25,31 @@ import hudson.Util;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
+import hudson.model.Cause;
+import hudson.model.CauseAction;
 import hudson.model.Hudson;
 import hudson.model.Result;
 import hudson.model.Run;
+import hudson.remoting.Which;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
 import hudson.tasks.Maven;
 import hudson.tools.ToolInstallation;
 import hudson.util.ArgumentListBuilder;
 import net.sf.json.JSONObject;
+import org.apache.commons.lang.StringUtils;
+import org.jfrog.build.api.BuildInfoProperties;
+import org.jfrog.build.client.ClientProperties;
+import org.jfrog.build.extractor.maven.AbstractPropertyResolver;
+import org.jfrog.build.extractor.maven.BuildInfoRecorder;
+import org.jfrog.hudson.maven3.util.ActionableHelper;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * Maven3 builder.
@@ -141,16 +152,41 @@ public class Maven3Builder extends Builder {
         // classpath
         args.add("-cp");
         String cpSeparator = launcher.isUnix() ? ":" : ";";
-        args.add(classWorldsJar.getAbsolutePath());
+
+        StringBuilder cpBuilder = new StringBuilder();
+        cpBuilder.append(classWorldsJar.getAbsolutePath());
+
+        getClass().getClassLoader().getResource("classworlds.conf");
 
         // extractor jars
-        //args.add(cpSeparator + Which.jarFile(BuildInfoRecorderLifecycleParticipant.class).getAbsolutePath());
+        File extractorJar = Which.jarFile(AbstractPropertyResolver.class);
+        if (extractorJar == null || !extractorJar.exists()) {
+            listener.error("Couldn't find maven3 extractor jar (class not found: " +
+                    AbstractPropertyResolver.class.getName() + ").");
+            throw new Run.RunnerAbortedException();
+        }
+
+        File extractorLibDir = extractorJar.getParentFile();
+        for (File extractorDependency : extractorLibDir.listFiles()) {
+            //cpBuilder.append(cpSeparator).append(extractorDependency.getAbsolutePath());
+        }
+        args.add(cpBuilder.toString());
 
         // maven home
         args.add("-Dmaven.home=" + mvn.getHome());
 
         // classworlds conf
-        args.add("-Dclassworlds.conf=" + mvn.getHome() + "/bin/m2.conf");
+        args.add("-Dm3plugin.lib=" + extractorLibDir);
+        File pluginClasses = Which.jarFile(this.getClass());
+        File classworldsConf = new File(pluginClasses, "classworlds.conf");
+        if (!classworldsConf.exists()) {
+            listener.error(
+                    "Unable to locate classworlds configuration file under " + classworldsConf.getAbsolutePath());
+            throw new Run.RunnerAbortedException();
+        }
+        args.add("-Dclassworlds.conf=" + classworldsConf.getAbsolutePath());
+
+        addBuilderInfoArguments(args, build, listener);
 
         // maven opts
         args.add(Util.replaceMacro(mavenOpts, build.getBuildVariableResolver()));
@@ -158,10 +194,89 @@ public class Maven3Builder extends Builder {
         // classworlds launcher main class
         args.add(CLASSWORLDS_LAUNCHER);
 
+        // pom file to build
+        args.add("-f", rootPom);
+
         // maven goals
-        args.add(goals);
+        args.addTokenized(goals);
 
         return args;
+    }
+
+
+    private void addBuilderInfoArguments(ArgumentListBuilder args, AbstractBuild<?, ?> build, BuildListener listener)
+            throws IOException, InterruptedException {
+
+        Map<String, String> props = Maps.newHashMap();
+
+        props.put(BuildInfoRecorder.ACTIVATE_RECORDER, Boolean.TRUE.toString());
+
+        String buildName = build.getDisplayName();
+        props.put(BuildInfoProperties.PROP_BUILD_NAME, buildName);
+        props.put(ClientProperties.PROP_DEPLOY_PARAM_PROP_PREFIX + "build.name", buildName);
+
+        String buildNumber = build.getNumber() + "";
+        props.put(BuildInfoProperties.PROP_BUILD_NUMBER, buildNumber);
+        props.put(ClientProperties.PROP_DEPLOY_PARAM_PROP_PREFIX + "build.number", buildName);
+
+        // TODO: what is the expected format?
+        String buildStarted = build.getTimestamp().getTimeInMillis() + "";
+        props.put(BuildInfoProperties.PROP_BUILD_STARTED, buildStarted);
+
+        EnvVars envVars = build.getEnvironment(listener);
+        String vcsRevision = envVars.get("SVN_REVISION");
+        if (StringUtils.isNotBlank(vcsRevision)) {
+            props.put(BuildInfoProperties.PROP_VCS_REVISION, vcsRevision);
+            props.put(ClientProperties.PROP_DEPLOY_PARAM_PROP_PREFIX +
+                    BuildInfoProperties.PROP_VCS_REVISION, vcsRevision);
+        }
+
+        String buildUrl = Hudson.getInstance().getRootUrl() + build.getUrl();
+        props.put(BuildInfoProperties.PROP_BUILD_URL, buildUrl);
+
+        Cause.UpstreamCause parent = ActionableHelper.getUpstreamCause(build);
+        if (parent != null) {
+            String parentProject = parent.getUpstreamProject();
+            props.put(BuildInfoProperties.PROP_PARENT_BUILD_NAME, parentProject);
+            props.put(ClientProperties.PROP_DEPLOY_PARAM_PROP_PREFIX +
+                    BuildInfoProperties.PROP_PARENT_BUILD_NAME, parentProject);
+
+            String parentBuildName = parent.getUpstreamBuild() + "";
+            props.put(BuildInfoProperties.PROP_PARENT_BUILD_NUMBER, parentBuildName);
+            props.put(ClientProperties.PROP_DEPLOY_PARAM_PROP_PREFIX +
+                    BuildInfoProperties.PROP_PARENT_BUILD_NUMBER, parentBuildName);
+        }
+
+        CauseAction action = ActionableHelper.getLatestAction(build, CauseAction.class);
+        if (action != null) {
+            for (Cause cause : action.getCauses()) {
+                if (cause instanceof Cause.UserCause) {
+                    String userName = ((Cause.UserCause) cause).getUserName();
+                    props.put(BuildInfoProperties.PROP_PRINCIPAL, userName);
+                }
+            }
+        }
+
+        props.put(BuildInfoProperties.PROP_AGENT_NAME, "hudson");
+        props.put(BuildInfoProperties.PROP_AGENT_VERSION, build.getHudsonVersion());
+
+        //props.put(ClientProperties.PROP_CONTEXT_URL, serverConfig.getUrl());
+        //props.put(ClientProperties.PROP_TIMEOUT, Integer.toString(serverConfig.getTimeout()));
+        //props.put(ClientProperties.PROP_PUBLISH_REPOKEY, builder.getDeployableRepo());
+
+        /*String deployerUsername = builder.getDeployerUsername();
+        if (StringUtils.isNotBlank(deployerUsername)) {
+            props.put(ClientProperties.PROP_PUBLISH_USERNAME, deployerUsername);
+            props.put(ClientProperties.PROP_PUBLISH_PASSWORD, builder.getDeployerPassword());
+        }*/
+
+        props.put(ClientProperties.PROP_PUBLISH_ARTIFACT, Boolean.FALSE.toString());
+        props.put(ClientProperties.PROP_PUBLISH_BUILD_INFO, Boolean.FALSE.toString());
+        File outputFile = new File(build.getRootDir(), "maven3/buildinfo.json");
+        outputFile.getParentFile().mkdirs();
+        props.put(BuildInfoProperties.PROP_BUILD_INFO_OUTPUT_FILE, outputFile.getAbsolutePath());
+
+        args.addKeyValuePairs("-D", props);
     }
 
     public Maven.MavenInstallation getMavenInstallation() {

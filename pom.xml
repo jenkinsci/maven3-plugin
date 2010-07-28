@@ -20,7 +20,7 @@
     <parent>
         <groupId>org.jvnet.hudson.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>1.358</version>
+        <version>1.367</version>
     </parent>
 
     <artifactId>maven3</artifactId>
@@ -30,6 +30,10 @@
     <inceptionYear>2010</inceptionYear>
     <description>Hudson Maven 3 Builder with Artifactory Integration</description>
     <url>http://wiki.hudson-ci.org/display/HUDSON/Maven3+Plugin</url>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 
     <developers>
         <developer>
@@ -62,9 +66,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.jvnet.hudson.main</groupId>
-            <artifactId>maven-plugin</artifactId>
-            <version>${project.parent.version}</version>
+            <groupId>org.jfrog.buildinfo</groupId>
+            <artifactId>build-info-extractor-maven3</artifactId>
+            <version>1.0.x-SNAPSHOT</version>
         </dependency>
     </dependencies>
 
